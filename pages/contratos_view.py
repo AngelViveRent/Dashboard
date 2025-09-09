@@ -1,6 +1,7 @@
 # pages/contratos_view.py
 import dash
 from dash import State, html, dcc, dash_table, callback, Output, Input, no_update
+import numpy as np
 import pandas as pd
 import plotly.express as px
 
@@ -138,15 +139,10 @@ layout = html.Div(
                 ),
 
                 dcc.Dropdown(
-                    id="memory-field",
-                    style={"width": "80%"},
-                    options=[
-                        {"label":"Inversión","value":"InversionNum"},
-                        {"label":"Total de pagos","value":"Total_de_pagos"},
-                        # {"label":"# Contratos","value":"_count"},
-                    ],
-                    value="Total_de_pagos",   # ← evita quedarte en una columna inexistente
-                    clearable=False
+                    id="memory-proyecto",
+                    options=[], value=None, multi=False,
+                    placeholder="Elige proyecto…", clearable=True,
+                    style={"width": "60%"},
                 ),
                 dcc.Graph(id="memory-graph"),
                 dash_table.DataTable(id="memory-table",                 
@@ -164,7 +160,14 @@ layout = html.Div(
                         style_cell={
                             "whiteSpace": "nowrap", "textOverflow": "ellipsis",
                             "minWidth": "90px", "width": "120px", "maxWidth": "240px", "margin-top": "1%",
-                        })
+                            "fontFamily": "Helvetica, Arial, 'Helvetica Neue', sans-serif",
+                            "fontSize": "13px",
+                        },
+                        style_header={
+                            "fontFamily": "Helvetica, Arial, 'Helvetica Neue', sans-serif",
+                            "fontWeight": "600",
+                        },
+                    )
             ])
         ]  
         )
@@ -184,65 +187,74 @@ def opts_clientes(data):
     clientes = sorted(df["Nombre"].dropna().unique()) if "Nombre" in df else []
     return [{"label": c, "value": c} for c in clientes]
 
-# 3) Filtrar en memoria según el dropdown
+# 3) Poblar el dropdown de proyectos
+@callback(Output("memory-proyecto","options"),
+          Input("store-contratos","data"))
+def opts_proyectos(data):
+    import pandas as pd
+    df = pd.DataFrame(data or [])
+    if "Proyecto" not in df.columns:
+        return []
+    proyectos = sorted(df["Proyecto"].dropna().astype(str).unique())
+    return [{"label": p, "value": p} for p in proyectos]
+
+
+# 4) Filtrar en memoria según el dropdown
 @callback(
     Output("memory-table","data"),
     Output("memory-table","columns"),
     Output("memory-graph","figure"),
     Input("store-contratos","data"),
     Input("memory-clientes","value"),
-    Input("memory-field","value"),
+    Input("memory-proyecto","value"),
 )
-def update_table_graph(raw, clientes, field):
+def update_table_graph(raw, clientes, proyecto):
+    import numpy as np
     import pandas as pd, plotly.express as px
 
     df = pd.DataFrame(raw or [])
-    if clientes:
-        df = df[df["Nombre"].isin(clientes)]
 
-    # --- 1) Fecha: primera NO NULA entre varias columnas ---
-    cand = [c for c in ["FechaFirma", "Fecha_de_Firma", "Ultima_Actualizacion", "LastUpdateDate"] if c in df.columns]
+    if clientes and "Nombre" in df.columns:
+        df = df[df["Nombre"].isin(clientes)]
+    if proyecto and "Proyecto" in df.columns:
+        df = df[df["Proyecto"] == proyecto]
+
+    # Fecha (primera no nula)
+    cand = [c for c in ["FechaFirma","Fecha_de_Firma","Ultima_Actualizacion","LastUpdateDate"] if c in df.columns]
     if cand:
         fecha = pd.to_datetime(df[cand[0]], errors="coerce")
         for c in cand[1:]:
             fecha = fecha.combine_first(pd.to_datetime(df[c], errors="coerce"))
-        df["Fecha"] = fecha
+        dff = df.assign(Fecha=fecha)   # ← solo en copia
+    else:
+        dff = df.copy()
 
-    # --- 2) Métrica Y: numérica con fallbacks ---
+    # Métrica fija: Total_de_pagos -> Valor_total
     def parse_money(s):
-        return (s.astype(str)
-                 .str.replace(r"[^\d\.-]", "", regex=True)
-                 .replace("", None).astype(float))
+        return (s.astype(str).str.replace(r"[^\d\.-]", "", regex=True)
+                .replace("", None).astype(float))
+    
+    col = df.get("Total_de_pagos")
+    y = pd.to_numeric(col, errors="coerce") if col is not None else pd.Series(index=df.index, dtype=float)
+    if np.all(pd.isna(np.atleast_1d(y))) and "Total_de_pagos_fmt" in df.columns:
+        y = parse_money(df["Total_de_pagos_fmt"])
+    df["Valor_total"] = y
+    dff["Valor_total"] = y  
 
-    if field == "InversionNum":
-        if "InversionNum" in df.columns:
-            y = pd.to_numeric(df["InversionNum"], errors="coerce")
-        elif "Inversion" in df.columns:
-            y = parse_money(df["Inversion"])
-        else:
-            y = pd.Series(index=df.index, dtype=float)
-    elif field == "Total_de_pagos":
-        y = pd.to_numeric(df.get("Total_de_pagos"), errors="coerce")
-        if y.isna().all() and "Total_de_pagos_fmt" in df:
-            y = parse_money(df["Total_de_pagos_fmt"])
-    # elif field == "_count":
-    #     y = pd.Series(1, index=df.index, dtype="int64")
-    # else:
-    #     y = pd.Series(dtype=float)
-
-    df["valor"] = y
-
-    # --- 3) Limpieza y figura ---
-    dff = df.copy()
-    if "Fecha" in dff:
+    # Limpieza + figura
+    if "Fecha" in dff.columns:
         dff = dff.dropna(subset=["Fecha"]).sort_values("Fecha")
-    dff = dff.dropna(subset=["valor"])
+    dff = dff.dropna(subset=["Valor_total"])
 
     fig = px.line(
-        dff, x=("Fecha" if "Fecha" in dff else None),
-        y="valor", color="Nombre", markers=True,
-        title=("Serie por fecha" if "Fecha" in dff else "Serie")
+        dff,
+        x=("Fecha" if "Fecha" in dff.columns else None),
+        y="Valor_total",
+        color=("Nombre" if "Nombre" in dff.columns else None),
+        markers=True,
+        labels={"Valor_total": "Total de pagos"},
     )
 
-    cols = [{"name": c, "id": c} for c in df.columns if c != "valor"]
+    table_df = df.drop(columns=["Fecha"], errors="ignore")
+    cols = [{"name": c, "id": c} for c in df.columns if c != "Valor_total"]
     return df.to_dict("records"), cols, fig
