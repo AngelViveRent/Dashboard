@@ -34,7 +34,7 @@ layout = html.Div(
             ], className="mb-3"),
 
             html.Button("Sign in", id="login-button", n_clicks=0, className="btn btn-primary btn-block"),
-            html.Div(id="login-alert"),
+            html.Div(id="login-alert",  style={"display": "none"}),
             dcc.Location(id="login-redirect")
         ])
 

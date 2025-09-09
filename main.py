@@ -61,6 +61,12 @@ app.clientside_callback(
     Input("url", "pathname")
 )
 
+app.clientside_callback(
+    ClientsideFunction(namespace="guards", function_name="doLogout"),
+    Output("logout-button", "title"),   # prop dummy
+    Input("logout-button", "n_clicks")
+)
+
 @dash.callback(Output("frame", "children"), Input("url", "pathname"))
 def render(path):
     # /login: página independiente (sin sidebar)
