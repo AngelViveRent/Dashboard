@@ -8,7 +8,7 @@ import plotly.express as px
 
 from db import engine  # <<< usa la conexión global
 
-dash.register_page(__name__, path="/contratos", name="Contratos")
+dash.register_page(__name__, path="/", name="Contratos")
 
 def fetch_contratos():
     sql = """
@@ -114,6 +114,7 @@ def revicion_contratos(rows):
 layout = html.Div(
     className="main-contrato",
     children=[
+        dcc.Loading(
         html.Div(
         className="content d-flex flex-column",
         children=[
@@ -170,6 +171,7 @@ layout = html.Div(
                     )
             ])
         ]  
+        )
         )
     ]
 ) 

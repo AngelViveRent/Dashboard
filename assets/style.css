@@ -5,6 +5,7 @@
     
 }
 
+/* Vistas contratos */
 #tabla{
     margin-top: 5%;
 
@@ -30,6 +31,8 @@
     border-left: 6px solid #22c55e;
     background: #ffffff;
 }
+
+/* Vistas Login */
 .login{
     background-color:white;
     width: 40%;
@@ -42,4 +45,9 @@
     box-shadow: .5px .5px 2px black;
 
     
+}
+
+/* Vista unidades */
+.main-unidades{
+    background-color: red;
 }
