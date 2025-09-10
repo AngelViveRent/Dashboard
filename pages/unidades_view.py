@@ -12,11 +12,16 @@ dash.register_page(__name__, path="/unidades", name="Unidades")
 
 def fetch_unidades():
     sql = """
-        SELECT p.Nombre       AS ProyectoId,
-            COUNT(un.PK_Unidad)   AS Disponibles
-        FROM dbo.AR_Unidades as un join dbo.AR_Proyectos as p on un.FK_Proyecto = p.PK_Proyecto
-        WHERE FK_EstatusUnidadRentable = 1
+        SELECT
+        p.Nombre AS Proyecto,
+        SUM(CASE WHEN un.FK_EstatusUnidadRentable = 1  THEN 1 ELSE 0 END) AS Disponibles,
+        SUM(CASE WHEN un.FK_EstatusUnidadRentable = 10 THEN 1 ELSE 0 END) AS Vendidas,
+        COUNT(*) AS Total
+        FROM dbo.AR_Unidades AS un
+        JOIN dbo.AR_Proyectos AS p ON p.PK_Proyecto = un.FK_Proyecto
         GROUP BY p.Nombre
+        HAVING SUM(CASE WHEN un.FK_EstatusUnidadRentable = 1  THEN 1 ELSE 0 END) > 0
+        OR SUM(CASE WHEN un.FK_EstatusUnidadRentable = 10 THEN 1 ELSE 0 END) > 0
         ORDER BY Disponibles DESC
     """
     return pd.read_sql(sql, engine)
@@ -26,20 +31,70 @@ layout = html.Div(
     className="main-unidades",
     children=[
         dcc.Interval(id="tick-unidades", interval=60_000, n_intervals=0),  # refresco cada min
-        dcc.Loading( dcc.Graph(id="unidades-graph", style={"height": "60vh", "width": "100%"}))
+        dcc.Loading(
+                    id="load-unidades",
+                    children=html.Div([
+                        dcc.Graph(id="unidades-graph", style={"height": "60vh", "width": "99%"}),
+                        dash_table.DataTable(
+                            id="unidades-table",
+                            page_size=20,
+                            sort_action="native",
+                            style_table={"overflowX":"auto"},
+                            style_cell={"fontFamily":"Helvetica, Arial, sans-serif", "padding":"6px"},
+                        )
+                    ])
+                ),
     ]
 ) 
 
-@callback(Output("unidades-graph", "figure"),
-          Input("tick-unidades", "n_intervals"))
+@callback(
+    Output("unidades-graph", "figure"),
+    Output("unidades-table", "data"),
+    Output("unidades-table", "columns"),
+    Input("tick-unidades", "n_intervals"),
+)
 def plot_unidades(_):
-    df = fetch_unidades()
-    if df.empty:
-        return px.bar(title="Unidades disponibles por proyecto")
+    import plotly.express as px
 
-    fig = px.bar(df, x="ProyectoId", y="Disponibles", text="Disponibles",
-                 title="Unidades disponibles por proyecto")
+    df = fetch_unidades()  # columnas: Proyecto, Disponibles, Vendidas, Total
+
+    cols = [
+        {"name": "Proyecto",    "id": "Proyecto"},
+        {"name": "Disponibles", "id": "Disponibles"},
+        {"name": "Vendidas",    "id": "Vendidas"},
+        {"name": "Total",       "id": "Total"},
+    ]
+
+    if df.empty:
+        fig = px.bar(title="Unidades por proyecto", height=500)
+        return fig, [], cols
+
+    # ordenar por Disponibles
+    df = df.sort_values("Disponibles", ascending=False)
+
+    # Barras agrupadas: Disponibles vs Vendidas por proyecto
+    dff = df.melt(
+        id_vars=["Proyecto"],
+        value_vars=["Disponibles", "Vendidas"],
+        var_name="Estatus",
+        value_name="Unidades",
+    )
+
+    fig = px.bar(
+        dff,
+        x="Proyecto",
+        y="Unidades",
+        color="Estatus",
+        text="Unidades",
+        barmode="group",   # 'relative' si prefieres apiladas
+        height=500,
+        title="Unidades por proyecto",
+    )
     fig.update_traces(textposition="outside")
-    fig.update_layout(xaxis_title="Proyecto", yaxis_title="Disponibles",
-                      xaxis=dict(categoryorder="total descending"))
-    return fig
+    fig.update_layout(
+        xaxis_title="Proyecto",
+        yaxis_title="Unidades",
+        xaxis=dict(categoryorder="array", categoryarray=df["Proyecto"]),
+    )
+
+    return fig, df.to_dict("records"), cols
