@@ -136,7 +136,7 @@ layout = html.Div(
                     multi=True,
                     placeholder="Elige clientes…",
                     clearable=True,
-                    style={"width": "80%"}
+                    style={"width": "60%"}
                 ),
 
                 dcc.Dropdown(
@@ -146,6 +146,8 @@ layout = html.Div(
                     style={"width": "60%"},
                 ),
                 dcc.Graph(id="memory-graph"),
+                html.Button("Descargar CSV", id="csv-button"),
+                dcc.Download(id="download-unidades"),
                 dash_table.DataTable(id="memory-table",                 
                         fixed_rows={"headers": True},
                         virtualization=True,
@@ -243,20 +245,66 @@ def update_table_graph(raw, clientes, proyecto):
     df["Valor_total"] = y
     dff["Valor_total"] = y  
 
-    # Limpieza + figura
-    if "Fecha" in dff.columns:
-        dff = dff.dropna(subset=["Fecha"]).sort_values("Fecha")
+# -------- BARRAS (agregado mensual) --------
     dff = dff.dropna(subset=["Valor_total"])
+    if "Fecha" in dff.columns:
+        dff["Fecha"] = pd.to_datetime(dff["Fecha"], errors="coerce")
+        dff = dff.dropna(subset=["Fecha"])
+        # agregamos por mes para reducir número de barras
+        dff = (dff.assign(Fecha=dff["Fecha"].dt.to_period("M").dt.to_timestamp())
+                 .groupby(["Fecha","Nombre"], as_index=False)["Valor_total"].sum())
 
-    fig = px.line(
+    # (Opcional) dejar solo top N clientes y agrupar el resto
+    TOP_N = 12
+    if "Nombre" in dff.columns and dff["Nombre"].nunique() > TOP_N:
+        tot = dff.groupby("Nombre")["Valor_total"].sum().nlargest(TOP_N).index
+        dff["Nombre"] = np.where(dff["Nombre"].isin(tot), dff["Nombre"], "Otros")
+        dff = dff.groupby(["Fecha","Nombre"], as_index=False)["Valor_total"].sum()
+
+    fig = px.bar(
         dff,
-        x=("Fecha" if "Fecha" in dff.columns else None),
+        x=("Fecha" if "Fecha" in dff.columns else "Nombre"),
         y="Valor_total",
         color=("Nombre" if "Nombre" in dff.columns else None),
-        markers=True,
-        labels={"Valor_total": "Total de pagos"},
+        barmode="relative",  # usa "group" si prefieres agrupadas
+        labels={"Valor_total": "Total de pagos", "Fecha": "Fecha"},
+        height=500
     )
+    fig.update_layout(bargap=0.05, hovermode="x unified")
 
-    table_df = df.drop(columns=["Fecha"], errors="ignore")
+    # Tabla
     cols = [{"name": c, "id": c} for c in df.columns if c != "Valor_total"]
-    return df.to_dict("records"), cols, fig
+    return df.to_dict("records"), cols, fig 
+
+@callback(
+    Output("memory-proyecto", "options",allow_duplicate=True),
+    Output("memory-proyecto", "value"),
+    Input("store-contratos", "data"),
+    State("memory-proyecto", "value"),   # para no reescribir si ya hay selección}
+    prevent_initial_call=True
+)
+def opts_proyectos(data, current_value):
+    df = pd.DataFrame(data or [])
+    if "Proyecto" not in df.columns:
+        return [], None
+
+    proyectos = sorted(df["Proyecto"].dropna().astype(str).unique())
+    options = [{"label": p, "value": p} for p in proyectos]
+
+    # si el usuario ya eligió algo, no lo cambies
+    if current_value:
+        return options, no_update
+
+    # default
+    default = "AURUM TULUM" if "AURUM TULUM" in proyectos else (proyectos[0] if proyectos else None)
+    return options, default
+
+@callback(
+    Output("download-unidades", "data",allow_duplicate=True),
+    Input("csv-button", "n_clicks"),
+    State("memory-table", "derived_virtual_data"),  # respeta filtros/orden
+    prevent_initial_call=True
+)
+def download_csv(n, rows):
+    df = pd.DataFrame(rows or [])
+    return dcc.send_data_frame(df.to_csv, "unidades.csv", index=False, encoding="utf-8-sig")

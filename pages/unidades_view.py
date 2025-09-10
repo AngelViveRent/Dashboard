@@ -35,12 +35,14 @@ layout = html.Div(
                     id="load-unidades",
                     children=html.Div([
                         dcc.Graph(id="unidades-graph", style={"height": "60vh", "width": "99%"}),
+                        html.Button("Descargar CSV", id="csv-button"),
+                        dcc.Download(id="download-unidades"), 
                         dash_table.DataTable(
                             id="unidades-table",
                             page_size=20,
                             sort_action="native",
                             style_table={"overflowX":"auto"},
-                            style_cell={"fontFamily":"Helvetica, Arial, sans-serif", "padding":"6px"},
+                            style_cell={"fontFamily":"Helvetica, Arial, sans-serif", "padding":"6px"}, 
                         )
                     ])
                 ),
@@ -98,3 +100,13 @@ def plot_unidades(_):
     )
 
     return fig, df.to_dict("records"), cols
+
+@callback(
+    Output("download-unidades", "data"),
+    Input("csv-button", "n_clicks"),
+    State("unidades-table", "derived_virtual_data"),  # respeta filtros/orden
+    prevent_initial_call=True
+)
+def download_csv(n, rows):
+    df = pd.DataFrame(rows or [])
+    return dcc.send_data_frame(df.to_csv, "unidades.csv", index=False, encoding="utf-8-sig")
