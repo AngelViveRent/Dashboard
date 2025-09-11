@@ -4,6 +4,7 @@ from dash import State, html, dcc, dash_table, callback, Output, Input, no_updat
 import numpy as np
 import pandas as pd
 import plotly.express as px
+from dash_ag_grid import AgGrid
 
 
 from db import engine  # <<< usa la conexión global
@@ -15,13 +16,24 @@ def fetch_unidades():
         SELECT
         p.Nombre AS Proyecto,
         SUM(CASE WHEN un.FK_EstatusUnidadRentable = 1  THEN 1 ELSE 0 END) AS Disponibles,
+        SUM(CASE WHEN un.FK_EstatusUnidadRentable = 2  THEN 1 ELSE 0 END) AS Asignada,
+        SUM(CASE WHEN un.FK_EstatusUnidadRentable = 3  THEN 1 ELSE 0 END) AS Pagando,
+        SUM(CASE WHEN un.FK_EstatusUnidadRentable = 4  THEN 1 ELSE 0 END) AS Liquidada,
+        SUM(CASE WHEN un.FK_EstatusUnidadRentable = 5  THEN 1 ELSE 0 END) AS Solicitud,
+        SUM(CASE WHEN un.FK_EstatusUnidadRentable = 6  THEN 1 ELSE 0 END) AS Liberacion,
+        SUM(CASE WHEN un.FK_EstatusUnidadRentable = 7  THEN 1 ELSE 0 END) AS Autorizadas,
+        SUM(CASE WHEN un.FK_EstatusUnidadRentable = 8  THEN 1 ELSE 0 END) AS Escriturada,
+        SUM(CASE WHEN un.FK_EstatusUnidadRentable = 9  THEN 1 ELSE 0 END) AS Bloqueado,
         SUM(CASE WHEN un.FK_EstatusUnidadRentable = 10 THEN 1 ELSE 0 END) AS Vendidas,
+        SUM(CASE WHEN un.FK_EstatusUnidadRentable = 11  THEN 1 ELSE 0 END) AS Desconocido,
         COUNT(*) AS Total
         FROM dbo.AR_Unidades AS un
         JOIN dbo.AR_Proyectos AS p ON p.PK_Proyecto = un.FK_Proyecto
         GROUP BY p.Nombre
-        HAVING SUM(CASE WHEN un.FK_EstatusUnidadRentable = 1  THEN 1 ELSE 0 END) > 0
-        OR SUM(CASE WHEN un.FK_EstatusUnidadRentable = 10 THEN 1 ELSE 0 END) > 0
+        HAVING
+            SUM(CASE WHEN un.FK_EstatusUnidadRentable IN (
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+            ) THEN 1 ELSE 0 END) > 0
         ORDER BY Disponibles DESC
     """
     return pd.read_sql(sql, engine)
@@ -37,12 +49,19 @@ layout = html.Div(
                         dcc.Graph(id="unidades-graph"),
                         html.Button("Descargar CSV", id="csv-button", className="btn btn-outline-primary"),
                         dcc.Download(id="download-unidades"), 
-                        dash_table.DataTable(
+                        AgGrid(
                             id="unidades-table",
-                            page_size=20,
-                            sort_action="native",
-                            style_table={"overflowX":"auto"},
-                            style_cell={"fontFamily":"Helvetica, Arial, sans-serif", "padding":"6px"}, 
+                            columnDefs=[], 
+                            rowData=[],
+                            columnSize="autoSize",  # ← Auto-ajuste de ancho de columna
+                            defaultColDef={
+                                "sortable": True,
+                                "filter": True,
+                                "resizable": True,
+                                "floatingFilter": True,  # ← filtros visibles bajo el header
+                            },
+                            style={"height": "60vh", "width": "auto", "fontFamily": "Helvetica, Arial, sans-serif", "padding": "6px"},
+                            className="ag-theme-alpine",  # puedes usar otros como "ag-theme-balham"
                         )
                     ])
                 ),
@@ -51,8 +70,8 @@ layout = html.Div(
 
 @callback(
     Output("unidades-graph", "figure"),
-    Output("unidades-table", "data"),
-    Output("unidades-table", "columns"),
+    Output("unidades-table", "rowData"),
+    Output("unidades-table", "columnDefs"),
     Input("tick-unidades", "n_intervals"),
 )
 def plot_unidades(_):
@@ -61,10 +80,18 @@ def plot_unidades(_):
     df = fetch_unidades()  # columnas: Proyecto, Disponibles, Vendidas, Total
 
     cols = [
-        {"name": "Proyecto",    "id": "Proyecto"},
-        {"name": "Disponibles", "id": "Disponibles"},
-        {"name": "Vendidas",    "id": "Vendidas"},
-        {"name": "Total",       "id": "Total"},
+        {"field": "Proyecto"},
+        {"field": "Disponibles", "type": "numericColumn"},
+        {"field": "Asignada", "type": "numericColumn"},
+        {"field": "Pagando", "type": "numericColumn"},
+        {"field": "Liquidada", "type": "numericColumn"},
+        {"field": "Solicitud", "type": "numericColumn"},        
+        {"field": "Liberacion", "type": "numericColumn"},
+        {"field": "Autorizadas", "type": "numericColumn"},
+        {"field": "Escriturada", "type": "numericColumn"},
+        {"field": "Bloqueado", "type": "numericColumn"},
+        {"field": "Vendidas", "type": "numericColumn"},
+        {"field": "Total", "type": "numericColumn"},
     ]
 
     if df.empty:
@@ -104,9 +131,17 @@ def plot_unidades(_):
 @callback(
     Output("download-unidades", "data"),
     Input("csv-button", "n_clicks"),
-    State("unidades-table", "derived_virtual_data"),  # respeta filtros/orden
+    State("unidades-table", "rowData"),  # ← usa rowData en AG Grid
     prevent_initial_call=True
 )
 def download_csv(n, rows):
+    # Asegura que rows no esté vacío
     df = pd.DataFrame(rows or [])
-    return dcc.send_data_frame(df.to_csv, "unidades.csv", index=False, encoding="utf-8-sig")
+
+    # Ordenar columnas deseadas, si existen
+    columnas_deseadas = ["Proyecto", "Disponibles","Asignada","Pagando","Liquidada", "Solicitud", "Liberacion", "Autorizadas","Escriturada", "Bloqueado","Vendidas", "Total"]
+    columnas_presentes = [col for col in columnas_deseadas if col in df.columns]
+    df = df[columnas_presentes]
+
+    # Exporta a CSV
+    return dcc.send_data_frame(df.to_csv, "Unidades.csv", index=False, encoding="utf-8-sig")
