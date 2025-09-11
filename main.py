@@ -30,7 +30,7 @@ def sidebar():
                ]
     return html.Div(
         className="sider d-flex flex-column p-3 text-white bg-dark",
-        style={"width": "280px", "height": "100vh", "position": "sticky", "top": 0},
+        style={"width": "10%", "height": "100%", "position": "sticky", "top": 0},
         children=[
             html.H4("ViveRent", className="mb-3"),
             html.Hr(),

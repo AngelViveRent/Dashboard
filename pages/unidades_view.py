@@ -34,8 +34,8 @@ layout = html.Div(
         dcc.Loading(
                     id="load-unidades",
                     children=html.Div([
-                        dcc.Graph(id="unidades-graph", style={"height": "60vh", "width": "99%"}),
-                        html.Button("Descargar CSV", id="csv-button"),
+                        dcc.Graph(id="unidades-graph"),
+                        html.Button("Descargar CSV", id="csv-button", className="btn btn-outline-primary"),
                         dcc.Download(id="download-unidades"), 
                         dash_table.DataTable(
                             id="unidades-table",

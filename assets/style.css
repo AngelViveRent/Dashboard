@@ -1,7 +1,8 @@
+
 .sider{
     display: flex;
-    height: 100vh;
-    width: 20vh !important;
+    height: 100vh !important;
+    width: 10% !important;
     
 }
 
@@ -13,13 +14,12 @@
 
 .resultados{
     display:flex;
-    justify-content:center;
+    justify-content: center;
 }
 
 .main-contrato
 {
-    max-width: 99%;
-    margin-left:1% ;
+    max-width: 100% !important;
 }
 
 #resumen-contratos
@@ -31,6 +31,7 @@
     border-left: 6px solid #22c55e;
     background: #ffffff;
 }
+
 
 /* Vistas Login */
 .login{
@@ -47,4 +48,5 @@
     
 }
 
+.sider + div { min-width: 0; flex: 1 1 auto; }
 /* Vista unidades */

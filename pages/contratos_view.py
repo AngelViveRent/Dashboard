@@ -23,11 +23,12 @@ SELECT
         ELSE        '$' + CONVERT(varchar(20), CONVERT(money, c.MontoInversion), 1)
         END AS Inversion,
     c.MontoInversion                AS Total_de_pagos,
-CASE 
-  WHEN ISNULL(SUM(i.Monto),0) < 0 
-    THEN '-' + '$' + CONVERT(varchar(20), CONVERT(money, ABS(ISNULL(SUM(i.Monto),0))), 1)
-  ELSE        '$' + CONVERT(varchar(20), CONVERT(money, ISNULL(SUM(i.Monto),0)), 1)
-END AS Total_de_pagos_fmt,
+    CASE 
+    WHEN ISNULL(SUM(i.Monto),0) < 0 
+        THEN '-' + '$' + CONVERT(varchar(20), CONVERT(money, ABS(ISNULL(SUM(i.Monto),0))), 1)
+    ELSE        '$' + CONVERT(varchar(20), CONVERT(money, ISNULL(SUM(i.Monto),0)), 1)
+    END AS Total_de_pagos_fmt,
+    ISNULL(SUM(i.Monto), 0) AS Pagos_reales,
     CAST(c.LastUpdateDate AS date)   as Ultima_Actualizacion,
     e.Estatus AS Estatus,
     CASE WHEN c.FechaFirma IS NULL THEN 'Pendiente' ELSE 'En Proceso' END AS Tiene_Firma,
@@ -53,6 +54,7 @@ GROUP BY
     c.FechaFirma,
     u.Nombre,
     c.IsActive
+ORDER BY Inversion DESC
     """
     return pd.read_sql(sql, engine)
 
@@ -70,15 +72,31 @@ def resumen(rows):
           .fillna(0).sum()
         if "Total_de_pagos" in df.columns else 0.0
     )
+
+    pagos_real = (
+        pd.to_numeric(df.get("Pagos_reales"), errors="coerce")
+        .fillna(0).sum()
+        if "Pagos_reales" in df.columns else 0.0
+    )
     activos = int(pd.Series(df.get("Activado")).eq(1).sum())  # o .eq("activo") si es texto
 
-
-    return html.Div(className="d-flex gap-4", children=[
-        html.Div([html.H6("💰 Valor Total", className="mb-1"),
-                  html.H4(f"${total_pagos:,.2f}", className="mb-0 fw-bold text-success")]),
-        html.Div([html.H6("Total de contratos activos", className="mb-1"),
-                  html.H4(f"{activos:,}", className="mb-0 fw-bold text-primary")]),
-    ])
+    return html.Div([
+        html.H4("Activos", className="text-center mb-2"),
+        html.Div(className="d-flex gap-4 justify-content-between", children=[
+            html.Div([
+                html.H6("💰Valor", className="mb-1"),
+                html.H4(f"${total_pagos:,.2f}", className="mb-0 fw-bold text-primary")
+            ]),
+            html.Div([
+                html.H6("Cantidad", className="mb-1"),
+                html.H4(f"{activos:,}", className="mb-0 fw-bold text-success")
+            ]),
+            html.Div([
+                html.H6("💰Pagado", className="mb-1"),
+                html.H4(f"${pagos_real:,.2f}", className="mb-0 fw-bold text-primary")
+            ]),
+        ])
+    ], className="p-2", style={"height": "100%"})
 
 @callback(
     Output("revicion-contratos", "children"),
@@ -104,15 +122,24 @@ def revicion_contratos(rows):
     firmados = int(mask_firma.sum())
     total_inv_firmados = float(inv.where(mask_firma).sum())
 
-    return html.Div(className="d-flex gap-4", children=[
-        html.Div([html.H6("Total de contratos firmados", className="mb-1"),
-                  html.H4(f"{firmados:,}", className="mb-0 fw-bold text-primary")]),
-        html.Div([html.H6("💰 Valor Contratos Firmados", className="mb-1"),
-                  html.H4(f"${total_inv_firmados:,.2f}", className="mb-0 fw-bold text-success")]),
-    ])
+
+    return html.Div([
+            html.H4("Firmados", className="text-center mb-2"),
+            html.Div(className="d-flex gap-4 justify-content-between", children=[
+                html.Div([
+                    html.H6("💰Total", className="mb-1"),
+                    html.H4(f"${total_inv_firmados:,.2f}", className="mb-0 fw-bold text-success")
+                ]),
+                html.Div([
+                    html.H6("Cantidad", className="mb-1"),
+                    html.H4(f"{firmados:,}", className="mb-0 fw-bold text-primary")
+                ]),
+            ])
+        ], className="p-2", style={"height": "100%"})
+
 
 layout = html.Div(
-    className="main-contrato",
+    className=" main-contrato",
     children=[
         dcc.Loading(
         html.Div(
@@ -122,8 +149,8 @@ layout = html.Div(
                 className="resultados d-flex flex-wrap mb-4",  # flex-wrap permite múltiples en fila
                 children=[
                     dcc.Interval(id='init-load', interval=1*1000, n_intervals=0),
-                    html.Div(id='resumen-contratos', className="card p-3 m-2 shadow", style={"width": "32rem"}),
-                    html.Div(id="revicion-contratos", className="card p-3 m-2 shadow", style={"width": "32rem"}),
+                    html.Div(id='resumen-contratos', className="card p-3 m-2 shadow", style={"width": "40rem"}),
+                    html.Div(id="revicion-contratos", className="card p-3 m-2 shadow", style={"width": "40rem"}),
                 ]
             ),
             html.Div([
@@ -136,33 +163,33 @@ layout = html.Div(
                     multi=True,
                     placeholder="Elige clientes…",
                     clearable=True,
-                    style={"width": "60%"}
+                    style={"width": "40%"}
                 ),
 
                 dcc.Dropdown(
                     id="memory-proyecto",
                     options=[], value=None, multi=False,
                     placeholder="Elige proyecto…", clearable=True,
-                    style={"width": "60%"},
+                    style={"width": "40%"},
                 ),
-                dcc.Graph(id="memory-graph"),
-                html.Button("Descargar CSV", id="csv-button"),
-                dcc.Download(id="download-unidades"),
-                dash_table.DataTable(id="memory-table",                 
+                dcc.Graph(id="memory-graph",style={"height": "60vh", "width": "100%"}),
+                html.Button("Descargar CSV", id="download-button", className="btn btn-outline-primary"),
+                dcc.Download(id="download-contratos"),
+                dash_table.DataTable(id="memory-table",
                         fixed_rows={"headers": True},
+                        sort_action="native",
                         virtualization=True,
-                        fill_width=False, 
                         style_table={"overflowX": "auto","overflowY": "auto",
-                                     "height": "80vh", 
-                                     "minWidth": "100%", 
-                                     "width": "65vh", 
-                                     "margin": "0 auto", "padding": "0",
+                                     "height": "80vh",
+                                     "minWidth": "0",
+                                     "width": "100%",
+                                     "margin": "0", "padding": "0",
                                       },
-                        hidden_columns=["Activado", "Total_de_pagos"],
+                        hidden_columns=["Activado", "Total_de_pagos", "Pagos_reales"],
                         css=[{"selector": ".show-hide", "rule": "display: none"}],
                         style_cell={
                             "whiteSpace": "nowrap", "textOverflow": "ellipsis",
-                            "minWidth": "90px", "width": "120px", "maxWidth": "240px", "margin-top": "1%",
+                            "minWidth": "90px","maxWidth": "240px", "margin-top": "1%",
                             "fontFamily": "Helvetica, Arial, 'Helvetica Neue', sans-serif",
                             "fontSize": "13px",
                         },
@@ -296,12 +323,12 @@ def opts_proyectos(data, current_value):
         return options, no_update
 
     # default
-    default = "AURUM TULUM" if "AURUM TULUM" in proyectos else (proyectos[0] if proyectos else None)
-    return options, default
+   #default = "AURUM TULUM" if "AURUM TULUM" in proyectos else (proyectos[0] if proyectos else None)
+    return options, None
 
 @callback(
-    Output("download-unidades", "data",allow_duplicate=True),
-    Input("csv-button", "n_clicks"),
+    Output("download-contratos", "data",allow_duplicate=True),
+    Input("download-button", "n_clicks"),
     State("memory-table", "derived_virtual_data"),  # respeta filtros/orden
     prevent_initial_call=True
 )
