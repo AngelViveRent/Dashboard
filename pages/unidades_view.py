@@ -42,7 +42,7 @@ def fetch_unidades():
 layout = html.Div(
     className="main-unidades",
     children=[
-        dcc.Interval(id="tick-unidades", interval=60_000, n_intervals=0),  # refresco cada min
+        dcc.Interval(id="tick-unidades", interval=300*1000, n_intervals=0),  # refresco cada min
         dcc.Loading(
                     id="load-unidades",
                     children=html.Div([

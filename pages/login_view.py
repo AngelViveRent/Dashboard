@@ -9,34 +9,42 @@ from dash.dependencies import ClientsideFunction
 
 dash.register_page(__name__, path="/login", name="login")
 
-layout = html.Div(
-    className="login",
-        children=[
-            html.Div([
-                html.Label("Correo", htmlFor="email", className="form-label"),
-                dcc.Input(type="email", id="email-input", className="form-control")
-            ], className="mb-3"),
-            html.Div([
-                html.Label("Password", htmlFor="password", className="form-label"),
-                dcc.Input(type="password", id="password-input", className="form-control")
-            ], className="mb-3"),
-    
-            html.Div([
+layout = html.Div( 
+    className="main-login",
+    children=[
+    html.Div(
+        className="login",
+            children=[
+                html.H3("Viverent Portal", className="titulo"),
                 html.Div([
-                    dcc.Checklist(
-                        options=[{"label": " Remember me", "value": "remember"}],
-                        value=["remember"],
-                        id="remember-check",
-                        inputClassName="form-check-input",
-                        labelClassName="form-check-label"
-                    )
-                ], className="form-check")
-            ], className="mb-3"),
-
-            html.Button("Sign in", id="login-button", n_clicks=0, className="btn btn-primary btn-block"),
-            html.Div(id="login-alert",  style={"display": "none"}),
-            dcc.Location(id="login-redirect")
+                    html.Label("Correo", htmlFor="email", className="form-label"),
+                    dcc.Input(type="email", id="email-input", className="form-control")
+                ], className="mb-3"),
+                html.Div([
+                    html.Label("Password", htmlFor="password", className="form-label"),
+                    dcc.Input(type="password", id="password-input", className="form-control")
+                ], className="mb-3"),
+        
+                html.Div([
+                    html.Div([
+                        dcc.Checklist(
+                            options=[{"label": " Remember me", "value": "remember"}],
+                            value=["remember"],
+                            id="remember-check",
+                            inputClassName="form-check-input",
+                            labelClassName="form-check-label"
+                        )
+                    ], className="form-check")
+                ], className="mb-3"),
+                html.Div(className="sing-ing", 
+                         children=[
+                        html.Button("Sign in", id="login-button", n_clicks=0, className="btn btn-primary btn-block"),
+                        html.Div(id="login-alert",  style={"display": "none"}),
+                        dcc.Location(id="login-redirect")
+                ])
+            ])
         ])
+
 
 @callback(
     Output("login-alert", "children"),

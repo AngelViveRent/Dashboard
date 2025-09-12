@@ -75,12 +75,16 @@ def fetch_contratos():
 
 @callback(
     Output("resumen-contratos", "children"),
-    Input("memory-table", "rowData")
+    Input("store-contratos", "data"),
+    Input("memory-proyecto", "data")  # el nombre del proyecto seleccionado en la gráfica
 )
-def resumen(rows):
+def resumen(data, proyecto_seleccionado):
     import pandas as pd
-    df = pd.DataFrame(rows or [])
-
+    df = pd.DataFrame(data or [])
+    
+    # Si no hay proyecto seleccionado, usa todos los datos
+    if proyecto_seleccionado:
+        df = df[df["Proyecto"].isin(proyecto_seleccionado)]
     total_pagos = (
         pd.to_numeric(df.get("Total_de_pagos"), errors="coerce")
           .fillna(0).sum()
@@ -92,27 +96,27 @@ def resumen(rows):
         .fillna(0).sum()
         if "Pagos_reales" in df.columns else 0.0
     )
-    activos = int(pd.Series(df.get("Activado")).eq(1).sum())  # o .eq("activo") si es texto
+
+    activos = int(pd.Series(df.get("Activado")).eq(1).sum())
 
     return html.Div([ 
+        html.H5("Activos", className="text-center mb-2"),
+        html.Div(className="d-flex gap-4 justify-content-between", children=[
+            html.Div([
+                html.H6("💰Valor", className="mb-1"),
+                html.H5(f"${total_pagos:,.2f}", className="mb-0 fw-bold text-primary")
+            ]),
+            html.Div([
+                html.H6("💰Cobrado", className="mb-1"),
+                html.H5(f"${pagos_real:,.2f}", className="mb-0 fw-bold text-primary")
+            ]),
+            html.Div([
+                html.H6("Cantidad", className="mb-1"),
+                html.H5(f"{activos:,}", className="mb-0 fw-bold text-success")
+            ]),                            
+        ])
+    ], className="p-2", style={"height": "100%"})
 
-                        html.H5("Activos", className="text-center mb-2"),
-                        html.Div(className="d-flex gap-4 justify-content-between", children=[
-                            html.Div([
-                                html.H6("💰Valor", className="mb-1"),
-                                html.H5(f"${total_pagos:,.2f}", className="mb-0 fw-bold text-primary")
-                            ]),
-
-                            html.Div([
-                                html.H6("💰Cobrado", className="mb-1"),
-                                html.H5(f"${pagos_real:,.2f}", className="mb-0 fw-bold text-primary")
-                            ]),
-                            html.Div([
-                                html.H6("Cantidad", className="mb-1"),
-                                html.H5(f"{activos:,}", className="mb-0 fw-bold text-success")
-                            ]),                            
-                        ])
-                    ], className="p-2", style={"height": "100%"})
 
 @callback(
     Output("resumen-apartados", "children"),
@@ -201,13 +205,8 @@ layout = html.Div(
                         clearable=True,
                         style={"width": "40%"}
                     ),
-
-                    dcc.Dropdown(
-                        id="memory-proyecto",
-                        options=[], value=None, multi=False,
-                        placeholder="Elige proyecto…", clearable=True,
-                        style={"width": "40%"},
-                    ),
+                    dcc.Store(id="memory-cliente", data=[]),
+                    dcc.Store(id="memory-proyecto", data=[]),
                     dcc.Graph(id="memory-graph",style={"height": "60vh", "width": "100%"}),
                     html.Button("Descargar CSV", id="download-button", className="btn btn-outline-primary"),
                     dcc.Download(id="download-contratos"),
@@ -244,16 +243,72 @@ def opts_clientes(data):
     clientes = sorted(df["Nombre"].dropna().unique()) if "Nombre" in df else []
     return [{"label": c, "value": c} for c in clientes]
 
-# 3) Poblar el dropdown de proyectos
-@callback(Output("memory-proyecto","options"),
-          Input("store-contratos","data"))
-def opts_proyectos(data):
+
+
+@callback(
+    Output("memory-cliente", "options"),
+    Input("store-contratos", "data"),
+    Input("memory-proyecto", "data")  # <-- nuevo
+
+)
+def opts_clientes(data, proyecto):
     import pandas as pd
     df = pd.DataFrame(data or [])
+
+    if "Nombre" not in df.columns:
+        return []
+    if proyecto and proyecto != None and "Proyecto" in df.columns:
+        df = df[df["Proyecto"] == proyecto]
+
+    clientes = sorted(df["Nombre"].dropna().astype(str).unique())
+    return [{"label": c, "value": c} for c in clientes]
+
+@callback(
+    Output("memory-proyecto", "data", allow_duplicate=True),
+    Input("memory-graph", "relayoutData"),
+    State("store-contratos", "data"),
+    prevent_initial_call=True
+)
+def actualizar_proyectos_visibles(relayoutData, data):
+    import pandas as pd
+    df = pd.DataFrame(data or [])
+
+    # Asegúrate que la columna exista antes de operar
     if "Proyecto" not in df.columns:
         return []
-    proyectos = sorted(df["Proyecto"].dropna().astype(str).unique())
-    return [{"label": p, "value": p} for p in proyectos]
+
+    if relayoutData is None or "hiddenlabels" not in relayoutData:
+        # Si no hay ocultos, todos los proyectos están activos
+        return df["Proyecto"].dropna().unique().tolist()
+
+    ocultos = set(relayoutData["hiddenlabels"])
+    visibles = df["Proyecto"].dropna().unique()
+    activos = [p for p in visibles if p not in ocultos]
+    return activos
+
+
+
+
+@callback(
+    Output("memory-table", "rowData",allow_duplicate=True),
+    Input("store-contratos", "data"),
+    Input("memory-proyecto", "data"),
+    Input("memory-cliente", "value"), # <- puedes seleccionar múltiples
+    prevent_initial_call=True  
+)
+def actualizar_tabla(data, proyecto, clientes):
+    import pandas as pd
+    df = pd.DataFrame(data or [])
+
+    if proyecto and proyecto != None and "Proyecto" in df.columns:
+        df = df[df["Proyecto"] == proyecto]
+
+
+    if clientes and "Nombre" in df.columns:
+        df = df[df["Nombre"].isin(clientes)]
+
+    return df.to_dict("records")
+
 
 
 # 4) Filtrar en memoria según el dropdown
@@ -263,7 +318,7 @@ def opts_proyectos(data):
     Output("memory-graph","figure"),
     Input("store-contratos","data"),
     Input("memory-clientes","value"),
-    Input("memory-proyecto","value"),
+    Input("memory-proyecto","data"),
 )
 def update_table_graph(raw, clientes, proyecto):
     import numpy as np
@@ -273,9 +328,8 @@ def update_table_graph(raw, clientes, proyecto):
 
     if clientes and "Nombre" in df.columns:
         df = df[df["Nombre"].isin(clientes)]
-    if proyecto and "Proyecto" in df.columns:
+    if proyecto and proyecto != None and "Proyecto" in df.columns:
         df = df[df["Proyecto"] == proyecto]
-
     # Fecha (primera no nula)
     cand = [c for c in ["FechaFirma","Fecha_de_Firma","Ultima_Actualizacion","LastUpdateDate"] if c in df.columns]
     if cand:
@@ -291,6 +345,7 @@ def update_table_graph(raw, clientes, proyecto):
         return (s.astype(str).str.replace(r"[^\d\.-]", "", regex=True)
                 .replace("", None).astype(float))
     
+
     col = df.get("Total_de_pagos")
     y = pd.to_numeric(col, errors="coerce") if col is not None else pd.Series(index=df.index, dtype=float)
     if np.all(pd.isna(np.atleast_1d(y))) and "Pagado" in df.columns:
@@ -298,36 +353,31 @@ def update_table_graph(raw, clientes, proyecto):
     df["Valor_total"] = y
     dff["Valor_total"] = y  
 
+
 # -------- BARRAS (agregado mensual) --------
 
-    if "Pagado" in df.columns:
-        df["Valor_total"] = df["Pagado"]
-        dff = dff.copy()  # <- importante si dff viene filtrado y no tiene mismo index
-        dff["Valor_total"] = dff["Pagado"] if "Pagado" in dff.columns else np.nan
-    else:
-        df["Valor_total"] = np.nan
-        dff["Valor_total"] = np.nan
+    bar_df = dff.groupby("Proyecto", as_index=False)["Valor_total"].sum()
 
-    # (Opcional) dejar solo top N clientes y agrupar el resto
-    TOP_N = 20
-    if "Nombre" in dff.columns and dff["Nombre"].nunique() > TOP_N:
-        tot = dff.groupby("Nombre")["Valor_total"].sum().nlargest(TOP_N).index
-        dff["Nombre"] = np.where(dff["Nombre"].isin(tot), dff["Nombre"], "Otros")
-        dff = dff.groupby(["Fecha","Nombre"], as_index=False)["Valor_total"].sum()
-
-    if "Fecha" in dff.columns and "Valor_total" in dff.columns:
-        fig = px.bar(
-            dff,
-            x="Fecha",
+    fig = px.bar(
+            bar_df,
+            x="Proyecto",
             y="Valor_total",
-            color="Nombre" if "Nombre" in dff.columns else None,
+            color="Proyecto" if "Proyecto" in dff.columns else None,
             barmode="relative",
-            labels={"Valor_total": "Total de pagos", "Fecha": "Fecha"},
+            labels={"Valor_total": "Valor", "Fecha": "Fecha"},
             height=500
         )
+    # Determina qué puntos estarán seleccionados (si hay uno activo)
+    if proyecto:
+        selected = bar_df[bar_df["Proyecto"] == proyecto].index.tolist()
     else:
-        fig = px.bar(title="No hay datos suficientes para graficar")
+        selected = list(range(len(bar_df)))
 
+    fig.update_traces(
+        selectedpoints=selected,
+        selected=dict(marker=dict(opacity=1)),
+        unselected=dict(marker=dict(opacity=0.3))
+    )
     fig.update_layout(bargap=0.05, hovermode="x unified")
 
     # Tabla
@@ -346,29 +396,6 @@ def update_table_graph(raw, clientes, proyecto):
     ]
 
     return df.to_dict("records"), column_defs, fig 
-
-@callback(
-    Output("memory-proyecto", "options",allow_duplicate=True),
-    Output("memory-proyecto", "value"),
-    Input("store-contratos", "data"),
-    State("memory-proyecto", "value"),   # para no reescribir si ya hay selección}
-    prevent_initial_call=True
-)
-def opts_proyectos(data, current_value):
-    df = pd.DataFrame(data or [])
-    if "Proyecto" not in df.columns:
-        return [], None
-
-    proyectos = sorted(df["Proyecto"].dropna().astype(str).unique())
-    options = [{"label": p, "value": p} for p in proyectos]
-
-    # si el usuario ya eligió algo, no lo cambies
-    if current_value:
-        return options, no_update
-
-    # default
-   #default = "AURUM TULUM" if "AURUM TULUM" in proyectos else (proyectos[0] if proyectos else None)
-    return options, None
 
 
 @callback(
